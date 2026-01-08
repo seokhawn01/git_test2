@@ -65,8 +65,7 @@ jobs:
             ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
             ECR_REPOSITORY="test"
             IMAGE_TAG="${{ github.sha }}"
-            
-            # ✅ secrets 정제 (개행/공백 제거)
+                    
             DB_HOST="$(echo "${{ secrets.DB_HOST }}" | tr -d '\r\n' | xargs)"
             DB_PORT="$(echo "${{ secrets.DB_PORT }}" | tr -d '\r\n' | xargs)"
             DB_NAME="$(echo "${{ secrets.DB_NAME }}" | tr -d '\r\n' | xargs)"
