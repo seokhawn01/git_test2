@@ -1,11 +1,8 @@
-name: CI/CD Pipeline
+name: Deploy
 
 on:
   push:
     branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    types: [opened, synchronize, reopened]
 
 jobs:
   build-and-deploy:
@@ -49,7 +46,7 @@ jobs:
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
@@ -57,15 +54,14 @@ jobs:
           port: 22
           timeout: 60s
           command_timeout: 10m
-          debug: true
           script: |
             set -e
-            
+
             AWS_REGION="$(echo "${{ secrets.AWS_REGION }}" | tr -d '\r\n' | xargs)"
             ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
             ECR_REPOSITORY="test"
             IMAGE_TAG="${{ github.sha }}"
-                    
+
             DB_HOST="$(echo "${{ secrets.DB_HOST }}" | tr -d '\r\n' | xargs)"
             DB_PORT="$(echo "${{ secrets.DB_PORT }}" | tr -d '\r\n' | xargs)"
             DB_NAME="$(echo "${{ secrets.DB_NAME }}" | tr -d '\r\n' | xargs)"
@@ -74,38 +70,35 @@ jobs:
             MAIL_USERNAME="$(echo "${{ secrets.MAIL_USERNAME }}" | tr -d '\r\n' | xargs)"
             MAIL_PASSWORD="$(echo "${{ secrets.MAIL_PASSWORD }}" | tr -d '\r\n' | xargs)"
             JWT_SECRET="$(echo "${{ secrets.JWT_SECRET }}" | tr -d '\r\n' | xargs)"
-            
-            echo "DB_NAME=[$DB_NAME]"  # ✅ 줄바꿈 제거 확인
-            
+
+            # ⚠️ 아래 aws 명령은 "EC2 안에 AWS CLI + 권한(자격증명/인스턴스 롤)"이 있어야 성공함
             aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-            
+              | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
             docker pull "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-            
+
             docker stop test-app || true
             docker rm test-app || true
-            
+
             docker run -d --name test-app \
-            --restart unless-stopped \
-            -p 8080:8080 \
-            -e TZ=Asia/Seoul \
-            -e SPRING_PROFILES_ACTIVE=prod \
-            -e DB_HOST="$DB_HOST" \
-            -e DB_PORT="$DB_PORT" \
-            -e DB_NAME="$DB_NAME" \
-            -e DB_USERNAME="$DB_USERNAME" \
-            -e DB_PASSWORD="$DB_PASSWORD" \
-            -e MAIL_USERNAME="$MAIL_USERNAME" \
-            -e MAIL_PASSWORD="$MAIL_PASSWORD" \
-            -e JWT_SECRET="$JWT_SECRET" \
-            "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-  
-  
+              --restart unless-stopped \
+              -p 8080:8080 \
+              -e TZ=Asia/Seoul \
+              -e SPRING_PROFILES_ACTIVE=prod \
+              -e DB_HOST="$DB_HOST" \
+              -e DB_PORT="$DB_PORT" \
+              -e DB_NAME="$DB_NAME" \
+              -e DB_USERNAME="$DB_USERNAME" \
+              -e DB_PASSWORD="$DB_PASSWORD" \
+              -e MAIL_USERNAME="$MAIL_USERNAME" \
+              -e MAIL_PASSWORD="$MAIL_PASSWORD" \
+              -e JWT_SECRET="$JWT_SECRET" \
+              "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
             echo "컨테이너 시작 대기..."
             sleep 5
             docker ps | grep test-app || (echo "컨테이너가 실행 중이 아닙니다" && docker logs --tail=200 test-app || true && exit 1)
 
-            # ✅ 헬스체크: 후보 2개를 모두 시도
             check() { curl -fsS "$1" > /dev/null 2>&1; }
 
             for i in {1..30}; do
