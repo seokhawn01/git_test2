@@ -1,27 +1,42 @@
-name: Deploy
+name: CI/CD Pipeline
 
 on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened]
   push:
     branches: ["main"]
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: ${{ vars.WORKDIR || 'test' }} # ✅ 워크디렉토리
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "21"
-          distribution: "temurin"
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      - name: Build with Gradle
+      - name: Build
         run: ./gradlew build -x test
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' # ✅ PR에서는 배포 금지
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ vars.WORKDIR || 'test' }} # ✅ 빌드 컨텍스트 동일
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,7 +70,6 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
-
             AWS_REGION="$(echo "${{ secrets.AWS_REGION }}" | tr -d '\r\n' | xargs)"
             ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
             ECR_REPOSITORY="test"
@@ -74,7 +88,6 @@ jobs:
               | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
             docker pull "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
             docker stop test-app || true
             docker rm test-app || true
 
@@ -92,3 +105,4 @@ jobs:
               -e MAIL_PASSWORD="$MAIL_PASSWORD" \
               -e JWT_SECRET="$JWT_SECRET" \
               "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
