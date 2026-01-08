@@ -69,6 +69,20 @@ jobs:
           timeout: 60s
           command_timeout: 10m
           script: |
+            echo "=== Health check ==="
+            for i in {1..30}; do
+              if curl -fsS http://localhost:8080/api/health >/dev/null; then
+                echo "✅ Health check OK"
+                exit 0
+              fi
+              echo "⏳ waiting... ($i/30)"
+              sleep 2
+            done
+            
+            echo "❌ Health check failed"
+            docker logs --tail=200 test-app || true
+            exit 1
+
             set -e
             AWS_REGION="$(echo "${{ secrets.AWS_REGION }}" | tr -d '\r\n' | xargs)"
             ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
