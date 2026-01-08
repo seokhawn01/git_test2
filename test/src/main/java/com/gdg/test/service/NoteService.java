@@ -46,4 +46,12 @@ public class NoteService {
         return new NoteResponse(note.getId(), note.getTitle(), note.getContent(), note.getCreatedAt());
     }
 
+    @Transactional
+    public void delete(Long id) {
+        if (!noteRepository.existsById(id)) {
+            throw new RuntimeException("노트를 찾을 수 없습니다. id=" + id);
+        }
+        noteRepository.deleteById(id);
+    }
+
 }

@@ -7,9 +7,11 @@ import com.gdg.test.service.NoteService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "Note", description = "DB 저장/조회 테스트용 API")
 @RestController
@@ -36,5 +38,14 @@ public class NoteController {
             @RequestBody @Valid NoteUpdateRequest req
     ) {
         return noteService.update(id, req);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> delete(@PathVariable Long id) {
+        noteService.delete(id);
+        return ResponseEntity.ok(Map.of(
+                "message", "deleted",
+                "id", id
+        ));
     }
 }
