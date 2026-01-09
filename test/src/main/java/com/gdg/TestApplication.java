@@ -1,4 +1,4 @@
-package com.gdg.test;
+package com.gdg;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
