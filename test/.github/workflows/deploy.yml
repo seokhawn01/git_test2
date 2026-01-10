@@ -55,12 +55,15 @@ jobs:
           timeout: 60s
           command_timeout: 10m
           script: |
-            set -e
+            set -euo pipefail
 
+            echo "=== Resolve deploy vars ==="
             AWS_REGION="$(echo "${{ secrets.AWS_REGION }}" | tr -d '\r\n' | xargs)"
             ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
             ECR_REPOSITORY="test"
             IMAGE_TAG="${{ github.sha }}"
+            IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            echo "IMAGE=$IMAGE"
 
             DB_HOST="$(echo "${{ secrets.DB_HOST }}" | tr -d '\r\n' | xargs)"
             DB_PORT="$(echo "${{ secrets.DB_PORT }}" | tr -d '\r\n' | xargs)"
@@ -71,15 +74,21 @@ jobs:
             MAIL_PASSWORD="$(echo "${{ secrets.MAIL_PASSWORD }}" | tr -d '\r\n' | xargs)"
             JWT_SECRET="$(echo "${{ secrets.JWT_SECRET }}" | tr -d '\r\n' | xargs)"
 
-            # ⚠️ 아래 aws 명령은 "EC2 안에 AWS CLI + 권한(자격증명/인스턴스 롤)"이 있어야 성공함
+            echo "=== Preflight: docker available? ==="
+            docker version >/dev/null
+
+            echo "=== Login to ECR (on EC2) ==="
             aws ecr get-login-password --region "$AWS_REGION" \
               | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-            docker pull "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            echo "=== Pull new image ==="
+            docker pull "$IMAGE"
 
+            echo "=== Stop & remove old container ==="
             docker stop test-app || true
             docker rm test-app || true
 
+            echo "=== Run new container ==="
             docker run -d --name test-app \
               --restart unless-stopped \
               -p 8080:8080 \
@@ -93,23 +102,35 @@ jobs:
               -e MAIL_USERNAME="$MAIL_USERNAME" \
               -e MAIL_PASSWORD="$MAIL_PASSWORD" \
               -e JWT_SECRET="$JWT_SECRET" \
-              "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+              "$IMAGE"
 
-            echo "컨테이너 시작 대기..."
-            sleep 5
-            docker ps | grep test-app || (echo "컨테이너가 실행 중이 아닙니다" && docker logs --tail=200 test-app || true && exit 1)
+            echo "=== Wait container process ==="
+            sleep 2
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | sed -n '1p;/test-app/p'
 
+            echo "=== Health check ==="
             check() { curl -fsS "$1" > /dev/null 2>&1; }
 
-            for i in {1..30}; do
+            for i in {1..40}; do
               if check "http://localhost:8080/api/health" || check "http://localhost:8080/actuator/health"; then
-                echo "헬스체크 통과"
-                exit 0
+                echo "✅ Health check OK"
+                break
               fi
-              echo "헬스체크 대기... ($i/30)"
+              echo "⏳ waiting... ($i/40)"
               sleep 2
             done
 
-            echo "헬스체크 실패 - 최근 로그"
-            docker logs --tail=200 test-app || true
-            exit 1
+            # 마지막으로 한 번 더 강제 검증 (안되면 여기서 실패)
+            if ! (check "http://localhost:8080/api/health" || check "http://localhost:8080/actuator/health"); then
+              echo "❌ Health check failed"
+              echo "=== Recent logs ==="
+              docker logs --tail=200 test-app || true
+              echo "=== Container inspect (summary) ==="
+              docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" | sed -n '1p;/test-app/p'
+              exit 1
+            fi
+
+            echo "=== Verify S3 endpoints in api-docs (optional) ==="
+            curl -s http://localhost:8080/v3/api-docs | grep -n "/api/s3" || true
+
+            echo "✅ Deploy finished"
