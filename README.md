@@ -1,6 +1,6 @@
-# GDGoc 그로우톤 6팀 (iOS) Travodo 백엔드
+# git_test2
 
-Travodo 백엔드 서버 레포지토리입니다.
+git_test2 서버 레포지토리입니다.
 
 ---
 
@@ -42,4 +42,5 @@ Travodo 백엔드 서버 레포지토리입니다.
 
 ## 🧪 PR 예시 화면
 
-![PR Example](https://user-images.githubusercontent.com/이미지ID/이미지이름.png)
+ex)
+<img width="1061" height="464" alt="image" src="https://github.com/user-attachments/assets/7918b0ab-6703-4eca-bb06-dd726878852b" />
