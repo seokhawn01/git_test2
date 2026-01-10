@@ -1,4 +1,3 @@
-# 기본 설정 (모든 프로파일에서 공통으로 사용)
 server:
   port: ${SERVER_PORT:8080}
 
@@ -29,8 +28,8 @@ spring:
   mail:
     host: smtp.gmail.com
     port: 587
-    username: ${MAIL_USERNAME:seokhawnkim@gmail.com}
-    password: ${MAIL_PASSWORD:lhpzobtkpfvnstvd}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}   # ✅ 기본값 비워두기
     properties:
       mail:
         smtp:
@@ -52,8 +51,8 @@ springdoc:
     groups-order: ASC
 
 jwt:
-  secret: ${JWT_SECRET:your-secret-key-change-this-in-production-use-long-random-string}
-  expiration: 86400000
+  secret: ${JWT_SECRET:}
+  expiration: ${JWT_EXPIRATION:86400000}
 
 cloud:
   aws:
@@ -63,3 +62,7 @@ cloud:
 aws:
   s3:
     bucket: ${AWS_S3_BUCKET:}
+
+app:
+  frontend:
+    url: ${FRONTEND_URL:}
