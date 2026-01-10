@@ -41,11 +41,14 @@ jobs:
           ECR_REPOSITORY: test
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          set -e
+          set -euo pipefail
+          echo "ECR_REGISTRY=$ECR_REGISTRY"
+          echo "ECR_REPOSITORY=$ECR_REPOSITORY"
+          echo "IMAGE_TAG=$IMAGE_TAG"
           docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
           docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      - name: Deploy to EC2
+      - name: Deploy to EC2 (force recreate + verify)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -53,7 +56,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           timeout: 60s
-          command_timeout: 10m
+          command_timeout: 15m
           script: |
             set -euo pipefail
 
@@ -63,8 +66,14 @@ jobs:
             ECR_REPOSITORY="test"
             IMAGE_TAG="${{ github.sha }}"
             IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            echo "AWS_REGION=$AWS_REGION"
             echo "IMAGE=$IMAGE"
 
+            # Optional: 도메인 기반 Swagger 검증을 원하면 secrets로 넣고 사용
+            # 예) SWAGGER_DOMAIN_URL = https://seok-hwan1.duckdns.org
+            DOMAIN_URL="$(echo "${{ secrets.SWAGGER_DOMAIN_URL || '' }}" | tr -d '\r\n' | xargs || true)"
+
+            echo "=== Read app secrets (trim) ==="
             DB_HOST="$(echo "${{ secrets.DB_HOST }}" | tr -d '\r\n' | xargs)"
             DB_PORT="$(echo "${{ secrets.DB_PORT }}" | tr -d '\r\n' | xargs)"
             DB_NAME="$(echo "${{ secrets.DB_NAME }}" | tr -d '\r\n' | xargs)"
@@ -73,6 +82,9 @@ jobs:
             MAIL_USERNAME="$(echo "${{ secrets.MAIL_USERNAME }}" | tr -d '\r\n' | xargs)"
             MAIL_PASSWORD="$(echo "${{ secrets.MAIL_PASSWORD }}" | tr -d '\r\n' | xargs)"
             JWT_SECRET="$(echo "${{ secrets.JWT_SECRET }}" | tr -d '\r\n' | xargs)"
+
+            # 필요하면 S3_BUCKET도 secrets로 추가해서 같이 주입
+            # S3_BUCKET="$(echo "${{ secrets.S3_BUCKET }}" | tr -d '\r\n' | xargs)"
 
             echo "=== Preflight: docker available? ==="
             docker version >/dev/null
@@ -84,9 +96,16 @@ jobs:
             echo "=== Pull new image ==="
             docker pull "$IMAGE"
 
-            echo "=== Stop & remove old container ==="
-            docker stop test-app || true
-            docker rm test-app || true
+            echo "=== Capture pulled image ID ==="
+            NEW_ID="$(docker image inspect "$IMAGE" --format '{{.Id}}')"
+            echo "NEW_IMAGE_ID=$NEW_ID"
+
+            echo "=== Force remove old container ==="
+            docker rm -f test-app 2>/dev/null || true
+
+            echo "=== (Optional) show who uses 8080 ==="
+            sudo ss -ltnp | grep ':8080' || true
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" | sed -n '1p;/8080->8080/p' || true
 
             echo "=== Run new container ==="
             docker run -d --name test-app \
@@ -104,6 +123,19 @@ jobs:
               -e JWT_SECRET="$JWT_SECRET" \
               "$IMAGE"
 
+            echo "=== Verify container uses the pulled image ==="
+            RUNNING_ID="$(docker inspect test-app --format '{{.Image}}')"
+            echo "RUNNING_IMAGE_ID=$RUNNING_ID"
+            if [ "$RUNNING_ID" != "$NEW_ID" ]; then
+              echo "❌ Container is NOT using the pulled image!"
+              echo "Expected: $NEW_ID"
+              echo "Actual:   $RUNNING_ID"
+              echo "=== Recent logs ==="
+              docker logs --tail=200 test-app || true
+              exit 1
+            fi
+            echo "✅ Container is running the pulled image"
+
             echo "=== Wait container process ==="
             sleep 2
             docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}" | sed -n '1p;/test-app/p'
@@ -111,16 +143,15 @@ jobs:
             echo "=== Health check ==="
             check() { curl -fsS "$1" > /dev/null 2>&1; }
 
-            for i in {1..40}; do
+            for i in {1..60}; do
               if check "http://localhost:8080/api/health" || check "http://localhost:8080/actuator/health"; then
                 echo "✅ Health check OK"
                 break
               fi
-              echo "⏳ waiting... ($i/40)"
+              echo "⏳ waiting... ($i/60)"
               sleep 2
             done
 
-            # 마지막으로 한 번 더 강제 검증 (안되면 여기서 실패)
             if ! (check "http://localhost:8080/api/health" || check "http://localhost:8080/actuator/health"); then
               echo "❌ Health check failed"
               echo "=== Recent logs ==="
@@ -130,7 +161,37 @@ jobs:
               exit 1
             fi
 
-            echo "=== Verify S3 endpoints in api-docs (optional) ==="
-            curl -s http://localhost:8080/v3/api-docs | grep -n "/api/s3" || true
+            echo "=== Verify api-docs contains expected endpoints ==="
+            # 최소 검증: /api/s3 경로가 문서에 잡히는지
+            curl -fsS http://localhost:8080/v3/api-docs | grep -n "/api/s3" || {
+              echo "❌ /api/s3 not found in api-docs (localhost)"
+              exit 1
+            }
+
+            # 강한 검증(추천): 신규 엔드포인트가 반드시 있어야 성공 처리
+            # 방금 추가한 upload-test가 반영됐는지 확인
+            curl -fsS http://localhost:8080/v3/api-docs | grep -n "/api/s3/upload-test" || {
+              echo "❌ /api/s3/upload-test not found in api-docs (localhost)"
+              exit 1
+            }
+
+            echo "=== (Optional) Verify api-docs via domain ==="
+            if [ -n "${DOMAIN_URL:-}" ]; then
+              curl -fsS "${DOMAIN_URL}/v3/api-docs" | grep -n "/api/s3/upload-test" || {
+                echo "❌ /api/s3/upload-test not found in api-docs (domain)"
+                echo "   -> Nginx routing/upstream/caching issue possible"
+                exit 1
+              }
+              echo "✅ api-docs updated on domain"
+            else
+              echo "(skip) DOMAIN_URL not set"
+            fi
+
+            echo "=== Recent logs (quick) ==="
+            docker logs --tail=80 test-app || true
+
+            echo "=== Cleanup dangling images (optional) ==="
+            # 너무 공격적으로 지우고 싶지 않으면 아래 줄 주석 처리
+            docker image prune -af || true
 
             echo "✅ Deploy finished"
