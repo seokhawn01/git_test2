@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
-@Tag(name = "Note", description = "DB 저장/조회 테스트용 API")
+@Tag(name = "Note", description = "DB 저장/조회 API")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/notes")
