@@ -1,3 +1,6 @@
+# =========================
+# ✅ src/main/resources/application-prod.yml
+# =========================
 spring:
   config:
     activate:
@@ -22,6 +25,17 @@ spring:
 jwt:
   secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:86400000}
+
+# ✅ 변수명 통일: AWS_S3_BASE_URL, S3_REGION, S3_BUCKETNAME
+cloud:
+  aws:
+    region:
+      static: ${S3_REGION:ap-northeast-2}
+
+aws:
+  s3:
+    bucketname: ${S3_BUCKETNAME}
+    base-url: ${AWS_S3_BASE_URL:}
 
 logging:
   level:

@@ -1,3 +1,6 @@
+# =========================
+# ✅ src/main/resources/application.yml
+# =========================
 server:
   port: ${SERVER_PORT:8080}
 
@@ -29,7 +32,7 @@ spring:
     host: smtp.gmail.com
     port: 587
     username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}   # ✅ 기본값 비워두기
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
@@ -54,14 +57,16 @@ jwt:
   secret: ${JWT_SECRET:}
   expiration: ${JWT_EXPIRATION:86400000}
 
+# ✅ 변수명 통일: AWS_S3_BASE_URL, S3_REGION, S3_BUCKETNAME
 cloud:
   aws:
     region:
-      static: ap-northeast-2
+      static: ${S3_REGION:ap-northeast-2}
 
 aws:
   s3:
-    bucket: ${AWS_S3_BUCKET:}
+    bucketname: ${S3_BUCKETNAME:}
+    base-url: ${AWS_S3_BASE_URL:}
 
 app:
   frontend:
