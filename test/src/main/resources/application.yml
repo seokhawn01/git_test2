@@ -54,3 +54,12 @@ springdoc:
 jwt:
   secret: ${JWT_SECRET:your-secret-key-change-this-in-production-use-long-random-string}
   expiration: 86400000
+
+cloud:
+  aws:
+    region:
+      static: ap-northeast-2
+
+aws:
+  s3:
+    bucket: ${AWS_S3_BUCKET:}
