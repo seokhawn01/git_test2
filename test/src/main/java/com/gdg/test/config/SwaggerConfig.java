@@ -1,4 +1,4 @@
-package com.gdg.config;
+package com.gdg.test.config;
 
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;

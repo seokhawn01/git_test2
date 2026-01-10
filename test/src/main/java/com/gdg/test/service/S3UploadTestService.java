@@ -1,7 +1,8 @@
+// src/main/java/com/gdg/test/service/S3UploadTestService.java
 package com.gdg.test.service;
 
+import com.gdg.test.config.S3Props;
 import com.gdg.test.dto.S3UploadTestResponse;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -10,31 +11,25 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
-
 
 @Service
 public class S3UploadTestService {
 
     private final S3Client s3Client;
+    private final S3Props s3Props;
 
-    /**
-     * ✅ 여기 프로퍼티 키는 네 프로젝트 설정에 맞춰 바꿔도 된다.
-     * 예)
-     * - cloud.aws.s3.bucket
-     * - aws.s3.bucket
-     * - S3_BUCKET 환경변수 → ${S3_BUCKET}
-     */
-    @Value("${cloud.aws.s3.bucket:${S3_BUCKET:}}")
-    private String bucket;
-
-    public S3UploadTestService(S3Client s3Client) {
+    public S3UploadTestService(S3Client s3Client, S3Props s3Props) {
         this.s3Client = s3Client;
+        this.s3Props = s3Props;
     }
 
     public S3UploadTestResponse uploadThenDelete(MultipartFile file) {
-        if (bucket == null || bucket.isBlank()) {
-            throw new IllegalStateException("S3 bucket 설정이 비어있습니다. (cloud.aws.s3.bucket 또는 S3_BUCKET)");
+        String bucket = (s3Props.bucketname() == null) ? "" : s3Props.bucketname().trim();
+
+        if (bucket.isBlank()) {
+            throw new IllegalStateException("S3 bucket 설정이 비어있습니다. (s3.bucketname 또는 S3_BUCKETNAME)");
         }
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("업로드할 파일이 비어있습니다.");
@@ -56,8 +51,7 @@ public class S3UploadTestService {
                     .bucket(bucket)
                     .key(key)
                     .contentType(contentType)
-                    // 테스트 파일이라는 메타데이터(선택)
-                    .metadata(java.util.Map.of("purpose", "swagger-upload-test", "cleanup", "immediate"))
+                    .metadata(Map.of("purpose", "swagger-upload-test", "cleanup", "immediate"))
                     .build();
 
             s3Client.putObject(putReq, RequestBody.fromBytes(file.getBytes()));
@@ -69,7 +63,6 @@ public class S3UploadTestService {
             upload = new S3UploadTestResponse.Upload("FAILED", "S3 putObject 실패: " + safeMsg(e));
         }
 
-        // ✅ 업로드가 성공했으면 반드시 삭제 시도 (자동 정리)
         if (uploaded) {
             try {
                 DeleteObjectRequest delReq = DeleteObjectRequest.builder()
